@@ -4,10 +4,30 @@ var mbaasExpress = mbaasApi.mbaasExpress();
 var cors = require('cors');
 var mediator = require('fh-wfm-mediator/lib/mediator');
 var bodyParser = require('body-parser');
+var mongoose = require('mongoose');
+var WfmStore = require('fh-wfm-store');
+var StorageEngine = WfmStore.StorageEngine;
+
+//TODO THis will be a separate module fh-wfm-storage-mongoose
+var MongooseDataStore = WfmStore.MongooseDataStore;
+
+//TODO This is not real, just seeing what multiple data stores looks like.
+var RedisDataStore = WfmStore.RedisDataStore;
+
+//Storage for all Data Types
+var applicationStore = new StorageEngine(mediator);
+
+//Using a mongoose Data Store
+var mongooseDataStore = new MongooseDataStore(mongoose);
+
+var redisDataStore = new RedisDataStore();
+
+applicationStore.addDataStore('mymongoose', mongooseDataStore);
+applicationStore.addDataStore('myredis', redisDataStore);
 
 // list the endpoints which you want to make securable here
 var securableEndpoints;
-securableEndpoints = ['/hello'];
+securableEndpoints = [];
 
 var app = express();
 
@@ -24,18 +44,28 @@ app.use(express.static(__dirname + '/public'));
 // Note: important that this is added just before your own Routes
 app.use(mbaasExpress.fhmiddleware());
 
-app.use('/hello', require('./lib/hello.js')());
 app.use('/api', bodyParser.json({limit: '10mb'}));
 require('fh-wfm-user/lib/router/mbaas')(mediator, app);
 
 // app modules
-require('./lib/user')(mediator);
+require('./lib/user')(applicationStore);
 
 // Important that this is last!
 app.use(mbaasExpress.errorHandler());
 
-var port = process.env.FH_PORT || process.env.OPENSHIFT_NODEJS_PORT || 8001;
-var host = process.env.OPENSHIFT_NODEJS_IP || '0.0.0.0';
-app.listen(port, host, function() {
-  console.log("App started at: " + new Date() + " on port: " + port);
+//Once mongoose is connected, initialise the store.
+//TODO: Other connections also here (e.g. redis, mysql etc)
+mongoose.connection.once('connect', function() {
+  mediator.publish('wfm:storage:initialise');
+
+  var port = process.env.FH_PORT || process.env.OPENSHIFT_NODEJS_PORT || 8001;
+  var host = process.env.OPENSHIFT_NODEJS_IP || '0.0.0.0';
+  app.listen(port, host, function() {
+    console.log("App started at: " + new Date() + " on port: " + port);
+  });
 });
+
+
+//Connecting to mongoose for data persistence
+//TODO - verifiy connection string, custom options etc.
+mongoose.connect(process.env.FH_MONGODB_CONN_URL);
